@@ -778,7 +778,7 @@ def main():
 
     # Evaluation
     if training_args.do_eval:
-        for mask_size in range(15, 25, 2):
+        for mask_size in [4, 8, 12, 16, 20, 25]:
             set_dynamic_masking_size(model, mask_size)
             logger.info(f"*** Evaluate MASK_SIZE = {mask_size}***")
 

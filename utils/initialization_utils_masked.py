@@ -84,7 +84,9 @@ class MaskedLinear(torch.nn.Linear):
 
     def forward(self, input):
         if self.mask_size is None:
-            mask_size = torch.randint(10, 26, (1,)).item()
+            numbers = torch.Tensor([4, 8, 12, 16, 20, 25])
+            random_idx = torch.randint(0, len(numbers), (1,)).item()
+            mask_size = int(numbers[random_idx].item())
         else:
             mask_size = self.mask_size
 
