@@ -49,7 +49,7 @@ from peft import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
-from utils.initialization_utils_masked import find_and_initialize, set_dynamic_masking_size
+from utils.initialization_utils_masked import find_and_initialize, reset_dynamic_masking_size, set_dynamic_masking_size
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -739,8 +739,32 @@ def main():
         num_training_steps=max_train_steps,
     )
 
+    
+    class MaskedTrainerWrapper(Trainer):
+        def __init__(self, eval_mask_sizes, *args, **kwargs):
+            self.eval_mask_sizes = eval_mask_sizes
+            super().__init__(*args, **kwargs)
+
+        def evaluate(
+            self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"
+        ):
+            results = {}
+            for mask_size in self.eval_mask_sizes:
+                set_dynamic_masking_size(self.model, mask_size)
+                logger.info(f"*** Evaluate MASK_SIZE = {mask_size}***")
+                mask_eval_result = super().evaluate(
+                    eval_dataset, ignore_keys, metric_key_prefix
+                )
+                for key, val in mask_eval_result.items():
+                    results[f"{key}_mask_{mask_size}"] = val
+
+                reset_dynamic_masking_size(self.model)
+
+            return results
+
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = MaskedTrainerWrapper(
+        eval_mask_sizes=[4, 8, 12, 16, 20, 25],
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -778,44 +802,39 @@ def main():
 
     # Evaluation
     if training_args.do_eval:
-        for mask_size in [4, 8, 12, 16, 20, 25]:
-            set_dynamic_masking_size(model, mask_size)
-            logger.info(f"*** Evaluate MASK_SIZE = {mask_size}***")
-
-            # Loop to handle MNLI double evaluation (matched, mis-matched)
-            tasks = [data_args.task_name]
-            eval_datasets = [eval_dataset]
-            if data_args.task_name == "mnli":
-                tasks.append("mnli-mm")
-                valid_mm_dataset = raw_datasets["validation_mismatched"]
-                if data_args.max_eval_samples is not None:
-                    max_eval_samples = min(
-                        len(valid_mm_dataset), data_args.max_eval_samples
-                    )
-                    valid_mm_dataset = valid_mm_dataset.select(range(max_eval_samples))
-                eval_datasets.append(valid_mm_dataset)
-                combined = {}
-
-            for eval_dataset, task in zip(eval_datasets, tasks):
-                metrics = trainer.evaluate(eval_dataset=eval_dataset)
-
-                max_eval_samples = (
-                    data_args.max_eval_samples
-                    if data_args.max_eval_samples is not None
-                    else len(eval_dataset)
+        # Loop to handle MNLI double evaluation (matched, mis-matched)
+        tasks = [data_args.task_name]
+        eval_datasets = [eval_dataset]
+        if data_args.task_name == "mnli":
+            tasks.append("mnli-mm")
+            valid_mm_dataset = raw_datasets["validation_mismatched"]
+            if data_args.max_eval_samples is not None:
+                max_eval_samples = min(
+                    len(valid_mm_dataset), data_args.max_eval_samples
                 )
-                metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+                valid_mm_dataset = valid_mm_dataset.select(range(max_eval_samples))
+            eval_datasets.append(valid_mm_dataset)
+            combined = {}
 
-                if task == "mnli-mm":
-                    metrics = {k + "_mm": v for k, v in metrics.items()}
-                if task is not None and "mnli" in task:
-                    combined.update(metrics)
-            
-                metrics["mask_size"] = mask_size
-                trainer.log_metrics("eval", metrics)
-                trainer.save_metrics(
-                    "eval", combined if task is not None and "mnli" in task else metrics
-                )
+        for eval_dataset, task in zip(eval_datasets, tasks):
+            metrics = trainer.evaluate(eval_dataset=eval_dataset)
+
+            max_eval_samples = (
+                data_args.max_eval_samples
+                if data_args.max_eval_samples is not None
+                else len(eval_dataset)
+            )
+            metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+
+            if task == "mnli-mm":
+                metrics = {k + "_mm": v for k, v in metrics.items()}
+            if task is not None and "mnli" in task:
+                combined.update(metrics)
+        
+            trainer.log_metrics("eval", metrics)
+            trainer.save_metrics(
+                "eval", combined if task is not None and "mnli" in task else metrics
+            )
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
