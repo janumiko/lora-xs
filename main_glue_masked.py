@@ -739,7 +739,6 @@ def main():
         num_training_steps=max_train_steps,
     )
 
-    
     class MaskedTrainerWrapper(Trainer):
         def __init__(self, eval_mask_sizes, *args, **kwargs):
             self.eval_mask_sizes = eval_mask_sizes
@@ -753,10 +752,10 @@ def main():
                 set_dynamic_masking_size(self.model, mask_size)
                 logger.info(f"*** Evaluate MASK_SIZE = {mask_size}***")
                 mask_eval_result = super().evaluate(
-                    eval_dataset, ignore_keys, metric_key_prefix
+                    eval_dataset, ignore_keys, f"{metric_key_prefix}_mask_{mask_size}_"
                 )
-                for key, val in mask_eval_result.items():
-                    results[f"{key}_mask_{mask_size}"] = val
+                for key, value in mask_eval_result.items():
+                    results[key] = value
 
                 reset_dynamic_masking_size(self.model)
 
@@ -830,7 +829,7 @@ def main():
                 metrics = {k + "_mm": v for k, v in metrics.items()}
             if task is not None and "mnli" in task:
                 combined.update(metrics)
-        
+
             trainer.log_metrics("eval", metrics)
             trainer.save_metrics(
                 "eval", combined if task is not None and "mnli" in task else metrics
