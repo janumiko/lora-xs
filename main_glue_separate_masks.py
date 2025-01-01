@@ -49,7 +49,11 @@ from peft import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
-from utils.initialization_utils_masked import find_and_initialize, reset_dynamic_masking_size, set_dynamic_masking_size
+from utils.initialization_utils_masked import (
+    find_and_initialize,
+    reset_dynamic_masking_size,
+    set_dynamic_masking_size,
+)
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -464,9 +468,11 @@ def main():
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     config = AutoConfig.from_pretrained(
-        model_args.config_name
-        if model_args.config_name
-        else model_args.model_name_or_path,
+        (
+            model_args.config_name
+            if model_args.config_name
+            else model_args.model_name_or_path
+        ),
         num_labels=num_labels,
         finetuning_task=data_args.task_name,
         cache_dir=model_args.cache_dir,
@@ -474,9 +480,11 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name
-        if model_args.tokenizer_name
-        else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
         revision=model_args.model_revision,
@@ -760,14 +768,6 @@ def main():
                 reset_dynamic_masking_size(self.model)
 
             return results
-
-        def training_step(self, model, inputs):
-            """Set a random mask size for the whole model before each training step"""
-            mask_size = random.choice(self.eval_mask_sizes)
-            set_dynamic_masking_size(model, mask_size)
-            loss = super().training_step(model, inputs)
-            reset_dynamic_masking_size(model)
-            return loss
 
     # Initialize our Trainer
     trainer = MaskedTrainerWrapper(
